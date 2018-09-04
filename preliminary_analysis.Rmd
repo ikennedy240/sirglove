@@ -1,0 +1,159 @@
+---
+title: "Seattle Incarceration and Rentals with Glove Word Embeddings (sirGloVE)"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(stm)
+library(tidycensus)
+```
+
+
+```{r}
+# load some data from my other project for now. I'll copy my text cleaning routines and stuff in later. I should actually make them into a package sometime so I can just load them...
+load("~/Work/UW/Code/GIT/cl_lda/archive/8_31_data.RData")
+```
+
+```{r grab census WA tract data}
+
+acs_codes <- c('B03002_001E','B03002_003E','B03002_004E','B03002_005E','B03002_006E','B03002_007E','B03002_009E','B03002_012E','B17001_001E','B17001_002E','B19013_001E', 'B06009_005E','B08015_001E','B25003_001E','B25003_002E','B25003_003E', 'B25032_001E','B25032_020E', 'B25032_021E', 'B25036_001E','B25036_015E','B25036_014E')
+acs_names <- c('total_RE','white', 'black', 'aindian', 'asian', 'pacisland', 'other', 'latinx', 'total_poverty', 'under_poverty', 'income', 'col_degree','commute', 'total_tenure', 'owner_occupied', 'rental', 'total_tenure_size', 'rental_20_49','rental_over_50','total_tenure_year', 'built_10_13', 'built_after_14')
+re_cols <- c("white","black", "aindian", "asian","pacisland", "other", "latinx", "all_other") # save a vector of race and ethnicity categories
+names(acs_codes) <- acs_names
+tracts <- get_acs(geography = 'tract', variables = acs_codes, output = 'wide', state = 'WA') %>% #grab census data
+  select(-ends_with("M")) %>% mutate(all_other = aindian+pacisland+other) # drop moe columns
+tracts <- bind_cols(tracts, setNames(tracts[re_cols]/tracts$total_RE, paste0(re_cols,"_proportion"))) %>% # make racial proportion columns
+  mutate(pov_proportion = under_poverty/total_poverty, # poverty proportion variable
+         log_income = log(income), # log income variable
+         pop_thousands = total_RE/1000, # population in thousands
+         share_oo = owner_occupied/total_tenure,
+         share_rental_over_20 = (rental_20_49+rental_over_50)/total_tenure,
+         share_built_after_10 = (built_10_13+built_after_14)/total_tenure)
+tracts[which(is.na(tracts$black_proportion)),]
+```
+
+
+```{r make neighborhood typology dummies}
+test1 <- tracts %>% 
+  #sample_n(20) %>% 
+  select(white_proportion, black_proportion, asian_proportion, latinx_proportion, all_other_proportion, GEOID)
+test <- gather(test1, key, value, -GEOID) %>% #go to long format
+  mutate(key=str_remove(key,'_proportion'), key=str_remove(key,'all_')) %>% #clean up the key
+  group_by(GEOID) %>% # group by tract
+  summarise(first = last(key,order_by = value), # use summarise to extract the top three labels and values
+            second = nth(key,-2,order_by = value), # maybe this is clumsy but its fast and its after midnight
+            third = nth(key,-3,order_by = value), 
+            highest = last(value,order_by = value), 
+            middle = nth(value,-2,order_by = value), 
+            low = nth(value,-3,order_by = value)) %>%
+  mutate( 
+    type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that 
+    type = ifelse(highest>.5&first!='white', paste("predominantly", first), type), # if the first one is not white and over 50, it's predominantly that 
+    type = ifelse(highest<=.4, "mixed", type), #if nothing it over 40, it's a mixed neighborhood
+    type = ifelse(highest>.4&middle>.1&low>.1,paste(first, second, third), type), # if the second and third heighest ar both over 20, it's all three in that order 
+    type = ifelse(middle>.1&low<=.1,paste(first, second), type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
+    type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),type), # if the second is below 20 then we'll call label it with the first group and mixed
+    type = ifelse(is.na(highest),'empty',type) # if there's an NA it's because the tract proportion divided by zero: an empty tract
+  )
+test
+```
+
+
+```{r topic proportion over time}
+# so I want to visualize topic prevalence over time....
+# I should make time the x axis and then map topic prevalence as the y... take the average for each date and plot it as a dot?
+
+merged_fit %>% select(Topic1:Topic40, listingDate) %>% group_by(listingDate) %>% summarise_all(mean) %>%
+  gather("topic","topicPrevalence", Topic1:Topic40) %>%
+  filter(topic %in% c("Topic10", 'Topic12', 'Topic14', 'Topic17', 'Topic19', 'Topic21', 'Topic26', 'Topic27', 'Topic30','Topic33','Topic34','Topic37','Topic4','Topic8','Topic9')) %>%
+  filter(topic == 'Topic9') %>%
+  ggplot(aes(listingDate, topicPrevalence, color = topic))+
+    geom_point()+
+    geom_smooth()+
+    facet_wrap(~topic)
+```
+10, 12, 14, 17, 19, 21, 26, 27, 30,33,34,37,4,8,9
+
+Topic 27 seems to follow the pattern of the approval and putting into effect of the law and includes the no RTSR language
+
+```{r keyword proportion overtime}
+# make a regex pattern that matches any of the stems starting with a space
+keywords <- '\\scrim\\w*|\\srecord\\w*|\\sfelon\\w*|\\sviolen\\w*|\\sdrug\\w*|\\svandal\\w*|\\ssex\\w*|\\sassault\\w*|\\sconvict\\w*|\\sprior\\w*'
+# a list of the same stems to check each keyword individually
+keyword_list <- c('crim', 'record', 'felon', 'violen', 'drug', 'vandal', 'sex', 'assault', 'convict', 'prior', 'evict', 'safe','secur')
+# make a limited df that only has relavent columns
+texts_only <- cl_dropped %>% select(listingDate, listingTitle, listingText, seattle) %>% mutate(fullText = paste(listingTitle, listingText))
+# mark texts that have any keyword
+texts_only <- texts_only %>% mutate(keyword_prevalence = str_detect(string = fullText, pattern = regex(keywords, ignore_case = TRUE)))
+
+# make a column for each stem and mark if that stem is present
+for(keyword in keyword_list){
+  # format the stem as a regex pattern
+  pattern = paste0('\\s',keyword,'\\w*')
+  # marke each text for presence of that stem
+  texts_only[keyword] = str_detect(string = texts_only$fullText, pattern = regex(pattern, ignore_case = TRUE))
+}
+
+# take our df
+texts_only %>% 
+  filter(seattle==0) %>% # filter on location
+  select(-contains('text'), -listingTitle) %>% #get rid of text columns
+  mutate(`Record/Convict/Sex/Drug` = record+convict+sex+drug, `Felon/Violen` = felon+violen) %>% #group some cols
+  group_by(listingDate) %>% summarise_all(mean) %>% #group and summarise
+  gather("keyword", "prevalence", - listingDate, - seattle) %>% # gather the keywords
+  #filter(keyword %in% c('crim', 'record', 'felon', 'violen', 'drug', 'vandal', 'sex', 'assault', 'convict', 'prior', 'evict')) %>%
+  filter(keyword %in% c('safe', 'secur')) %>%
+  #filter(keyword == 'Record/Convict/Sex/Drug') %>%
+  ggplot(aes(listingDate, prevalence, color=keyword))+
+    facet_wrap(~keyword)+
+    geom_point()+
+    geom_smooth()
+
+
+```
+
+peak in summer 17
+drug
+record
+convict
+
+peak in winter 18
+felon
+violent
+sex
+
+```{r}
+samples <- texts_only %>% filter(violen==TRUE) %>% head()
+cat(samples$fullText)
+safe
+secur
+```
+
+```{r}
+
+#add date 
+## PROCESS TRAINING DATA
+temp <- textProcessor(documents = cl_train$fullText, meta=cl_train, onlycharacter = TRUE) 
+out <- prepDocuments(temp$documents, temp$vocab, meta = temp$meta)
+
+
+# on 7-24 I decided to add bedrooms and sqft to the model because I don't think it should treat large adn small expensive units the same
+full_model_40 <- stm(out$documents, 
+                     out$vocab, 
+                     K = 40,
+                     prevalence = ~ black_proportion + 
+                       asian_proportion + 
+                       latinx_proportion + 
+                       pop_thousands + 
+                       pov_proportion +
+                       log_income + 
+                       log_price +
+                       log_sqft, 
+                     data=out$meta,
+                     seed = 24)
+
+```
+
+
