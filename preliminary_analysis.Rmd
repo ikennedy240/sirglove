@@ -3,6 +3,7 @@ title: "Seattle Incarceration and Rentals with Glove Word Embeddings (sirGloVE)"
 output: html_notebook
 ---
 
+<<<<<<< HEAD
 ```{r}
 library(tidyverse)
 library(ggplot2)
@@ -10,12 +11,15 @@ library(stm)
 library(tidycensus)
 ```
 
+=======
+>>>>>>> 131a79f574a4f65d291c3f96387d9ca09412ba2d
 
 ```{r}
 # load some data from my other project for now. I'll copy my text cleaning routines and stuff in later. I should actually make them into a package sometime so I can just load them...
 load("~/Work/UW/Code/GIT/cl_lda/archive/8_31_data.RData")
 ```
 
+<<<<<<< HEAD
 ```{r grab census WA tract data}
 
 acs_codes <- c('B03002_001E','B03002_003E','B03002_004E','B03002_005E','B03002_006E','B03002_007E','B03002_009E','B03002_012E','B17001_001E','B17001_002E','B19013_001E', 'B06009_005E','B08015_001E','B25003_001E','B25003_002E','B25003_003E', 'B25032_001E','B25032_020E', 'B25032_021E', 'B25036_001E','B25036_015E','B25036_014E')
@@ -156,4 +160,11 @@ full_model_40 <- stm(out$documents,
 
 ```
 
+=======
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+>>>>>>> 131a79f574a4f65d291c3f96387d9ca09412ba2d
 

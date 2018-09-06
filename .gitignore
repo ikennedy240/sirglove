@@ -2,6 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
+<<<<<<< HEAD
 .txt
 .csv
 .html
+=======
+>>>>>>> 131a79f574a4f65d291c3f96387d9ca09412ba2d
