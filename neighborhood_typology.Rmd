@@ -1,0 +1,62 @@
+---
+title: "Seattle Incarceration and Rentals with Glove Word Embeddings (sirGloVE)"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(stm)
+library(tidycensus)
+```
+
+
+```{r}
+# load some data from my other project for now. I'll copy my text cleaning routines and stuff in later. I should actually make them into a package sometime so I can just load them...
+#load("~/Work/UW/Code/GIT/cl_lda/archive/8_31_data.RData")
+```
+
+```{r grab census WA tract data}
+
+acs_codes <- c('B03002_001E','B03002_003E','B03002_004E','B03002_005E','B03002_006E','B03002_007E','B03002_009E','B03002_012E','B17001_001E','B17001_002E','B19013_001E', 'B06009_005E','B08015_001E','B25003_001E','B25003_002E','B25003_003E', 'B25032_001E','B25032_020E', 'B25032_021E', 'B25036_001E','B25036_015E','B25036_014E')
+acs_names <- c('total_RE','white', 'black', 'aindian', 'asian', 'pacisland', 'other', 'latinx', 'total_poverty', 'under_poverty', 'income', 'col_degree','commute', 'total_tenure', 'owner_occupied', 'rental', 'total_tenure_size', 'rental_20_49','rental_over_50','total_tenure_year', 'built_10_13', 'built_after_14')
+re_cols <- c("white","black", "aindian", "asian","pacisland", "other", "latinx", "all_other") # save a vector of race and ethnicity categories
+names(acs_codes) <- acs_names
+tracts <- get_acs(geography = 'tract', variables = acs_codes, output = 'wide', state = 'WA') %>% #grab census data
+  select(-ends_with("M")) %>% mutate(all_other = aindian+pacisland+other) # drop moe columns
+tracts <- bind_cols(tracts, setNames(tracts[re_cols]/tracts$total_RE, paste0(re_cols,"_proportion"))) %>% # make racial proportion columns
+  mutate(pov_proportion = under_poverty/total_poverty, # poverty proportion variable
+         log_income = log(income), # log income variable
+         pop_thousands = total_RE/1000, # population in thousands
+         share_oo = owner_occupied/total_tenure,
+         share_rental_over_20 = (rental_20_49+rental_over_50)/total_tenure,
+         share_built_after_10 = (built_10_13+built_after_14)/total_tenure)
+tracts[which(is.na(tracts$black_proportion)),]
+```
+
+
+```{r make neighborhood typology dummies}
+test1 <- tracts %>% 
+  sample_n(20) %>% 
+  select(white_proportion, black_proportion, asian_proportion, latinx_proportion, all_other_proportion, GEOID)
+test <- gather(test1, key, value, -GEOID) %>% #go to long format
+  mutate(key=str_remove(key,'_proportion'), key=str_remove(key,'all_')) %>% #clean up the key
+  group_by(GEOID) %>% # group by tract
+  summarise(first = last(key,order_by = value), # use summarise to extract the top three labels and values
+            second = nth(key,-2,order_by = value), # maybe this is clumsy but its fast and its after midnight
+            third = nth(key,-3,order_by = value), 
+            highest = last(value,order_by = value), 
+            middle = nth(value,-2,order_by = value), 
+            low = nth(value,-3,order_by = value)) %>%
+  mutate( 
+    type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that 
+    type = ifelse(highest>.5&first!='white', paste("predominantly", first), type), # if the first one is not white and over 50, it's predominantly that 
+    type = ifelse(highest<=.4, "mixed", type), #if nothing it over 40, it's a mixed neighborhood
+    type = ifelse(highest>.4&middle>.1&low>.1,paste(first, second, third), type), # if the second and third heighest ar both over 20, it's all three in that order 
+    type = ifelse(middle>.1&low<=.1,paste(first, second), type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
+    type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),type), # if the second is below 20 then we'll call label it with the first group and mixed
+    type = ifelse(is.na(highest),'empty',type) # if there's an NA it's because the tract proportion divided by zero: an empty tract
+  )
+test
+```
+
