@@ -15,8 +15,8 @@ library(tidycensus)
 >>>>>>> 131a79f574a4f65d291c3f96387d9ca09412ba2d
 
 ```{r}
-# load some data from my other project for now. I'll copy my text cleaning routines and stuff in later. I should actually make them into a package sometime so I can just load them...
-load("~/Work/UW/Code/GIT/cl_lda/archive/8_31_data.RData")
+cl_dropped <- read_csv('data/cl_dropped.csv')
+merged_fit <- read_csv('data/merged_fit.csv')
 ```
 
 <<<<<<< HEAD
@@ -35,7 +35,6 @@ tracts <- bind_cols(tracts, setNames(tracts[re_cols]/tracts$total_RE, paste0(re_
          share_oo = owner_occupied/total_tenure,
          share_rental_over_20 = (rental_20_49+rental_over_50)/total_tenure,
          share_built_after_10 = (built_10_13+built_after_14)/total_tenure)
-tracts[which(is.na(tracts$black_proportion)),]
 ```
 
 
@@ -55,13 +54,38 @@ test <- gather(test1, key, value, -GEOID) %>% #go to long format
   mutate( 
     type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that 
     type = ifelse(highest>.5&first!='white', paste("predominantly", first), type), # if the first one is not white and over 50, it's predominantly that 
-    type = ifelse(highest<=.4, "mixed", type), #if nothing it over 40, it's a mixed neighborhood
-    type = ifelse(highest>.4&middle>.1&low>.1,paste(first, second, third), type), # if the second and third heighest ar both over 20, it's all three in that order 
-    type = ifelse(middle>.1&low<=.1,paste(first, second), type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
+    type = ifelse(highest<=.3, "mixed", type), #if nothing it over 40, it's a mixed neighborhood
+    type = ifelse(highest>.3&middle>.1&low>.1,paste(first, second, third), type), # if the second and third heighest ar both over 20, it's all three in that order 
+    type = ifelse(highest>.3&middle>.1&low<=.1,paste(first, second), type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
     type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),type), # if the second is below 20 then we'll call label it with the first group and mixed
-    type = ifelse(is.na(highest),'empty',type) # if there's an NA it's because the tract proportion divided by zero: an empty tract
+    type = ifelse(is.na(highest),'empty',type), # if there's an NA it's because the tract proportion divided by zero: an empty tract
+    merged_type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that 
+    merged_type = ifelse(highest>.5&first!='white', paste("predominantly", first), merged_type), # if the first one is not white and over 50, it's predominantly that 
+    merged_type = ifelse(highest<=.3, "mixed", merged_type), #if nothing it over 40, it's a mixed neighborhood
+    merged_type = ifelse(highest>.3&middle>.1&low>.1,paste(first, "mixed"), merged_type), # if the second and third heighest ar both over 20, it's all three in that order 
+    merged_type = ifelse(highest>.3&middle>.1&low<=.1,paste(first, second), merged_type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
+    merged_type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),merged_type), # if the second is below 20 then we'll call label it with the first group and mixed
+    merged_type = ifelse(is.na(highest),'empty',merged_type), # if there's an NA it's because the tract proportion divided by zero: an empty tract
+    # if white is the highest, but the second one is greater that .1 and the third ISN'T then it should be second first
+    merged_type = ifelse(first=='white'&middle>.1&low<=.1,paste(second, first), merged_type),
+    # if white is the highest, but the second and third are greater that .1 then it should be mixed
+    merged_type = ifelse(first=='white'&middle>.1&low>.1,"mixed",merged_type)
   )
-test
+tracts <- tracts %>% inner_join(test[c("GEOID", "type")], by = 'GEOID')
+```
+
+```{r}
+test %>% group_by(merged_type) %>% count() %>% arrange(desc(n))
+range(test %>% filter(str_extract(type,"^\\w+\\s?\\w*")=='asian white') %>% select(highest), na.rm = TRUE)
+test[is.na(str_extract(test$type,"^\\w+\\s?\\w*")),]
+str_extract(test$type,"^\\w+\\s?\\w*")
+
+cl_dropped %>% mutate(GEOID = as.character(GEOID10)) %>% 
+  inner_join(test, by =  "GEOID") %>% 
+  group_by(merged_type, GEOID) %>% 
+  summarise(type = first(merged_type), asian = mean(asian_proportion), white = mean(white_proportion), black = mean(black_proportion), latinx = mean(latinx_proportion), other = mean(aindian_proportion+other_proportion+pacisland_proportion)) %>% 
+  summarise(n = n(),type = first(merged_type), asian = mean(asian), white = mean(white), black = mean(black), latinx = mean(latinx), other = mean(other)) %>% 
+  arrange(desc(n))
 ```
 
 
@@ -72,11 +96,12 @@ test
 merged_fit %>% select(Topic1:Topic40, listingDate) %>% group_by(listingDate) %>% summarise_all(mean) %>%
   gather("topic","topicPrevalence", Topic1:Topic40) %>%
   filter(topic %in% c("Topic10", 'Topic12', 'Topic14', 'Topic17', 'Topic19', 'Topic21', 'Topic26', 'Topic27', 'Topic30','Topic33','Topic34','Topic37','Topic4','Topic8','Topic9')) %>%
-  filter(topic == 'Topic9') %>%
+  filter(topic == 'Topic27') %>%
   ggplot(aes(listingDate, topicPrevalence, color = topic))+
-    geom_point()+
+    #geom_point()+
     geom_smooth()+
     facet_wrap(~topic)
+
 ```
 10, 12, 14, 17, 19, 21, 26, 27, 30,33,34,37,4,8,9
 
@@ -86,34 +111,54 @@ Topic 27 seems to follow the pattern of the approval and putting into effect of 
 # make a regex pattern that matches any of the stems starting with a space
 keywords <- '\\scrim\\w*|\\srecord\\w*|\\sfelon\\w*|\\sviolen\\w*|\\sdrug\\w*|\\svandal\\w*|\\ssex\\w*|\\sassault\\w*|\\sconvict\\w*|\\sprior\\w*'
 # a list of the same stems to check each keyword individually
-keyword_list <- c('crim', 'record', 'felon', 'violen', 'drug', 'vandal', 'sex', 'assault', 'convict', 'prior', 'evict', 'safe','secur')
+stem_list <- c('crim', 'record', 'felon', 'violen', 'drug', 'vandal', 'sex', 'assault', 'convict', 'prior', 'evict', 'safe','secur')
 # make a limited df that only has relavent columns
+term_list <- read_lines('resources/termlist.txt')
 texts_only <- cl_dropped %>% select(listingDate, listingTitle, listingText, seattle) %>% mutate(fullText = paste(listingTitle, listingText))
 # mark texts that have any keyword
 texts_only <- texts_only %>% mutate(keyword_prevalence = str_detect(string = fullText, pattern = regex(keywords, ignore_case = TRUE)))
 
 # make a column for each stem and mark if that stem is present
-for(keyword in keyword_list){
+for(keyword in term_list){
   # format the stem as a regex pattern
-  pattern = paste0('\\s',keyword,'\\w*')
+  pattern = paste0('\\b',keyword,'\\b')
   # marke each text for presence of that stem
   texts_only[keyword] = str_detect(string = texts_only$fullText, pattern = regex(pattern, ignore_case = TRUE))
 }
 
+for(keyword in stem_list){
+  # format the stem as a regex pattern
+  pattern = paste0('\\b',keyword,'\\w*')
+  # marke each text for presence of that stem
+  texts_only[keyword] = str_detect(string = texts_only$fullText, pattern = regex(pattern, ignore_case = TRUE))
+}
+
+
+mtrix <- cor(texts_only%>%select(-starts_with('listing'),-fullText, - seattle))
+mtrix>.4
+summary(texts_only)
 # take our df
 texts_only %>% 
-  filter(seattle==0) %>% # filter on location
+  filter(seattle==1) %>% # filter on location
   select(-contains('text'), -listingTitle) %>% #get rid of text columns
   mutate(`Record/Convict/Sex/Drug` = record+convict+sex+drug, `Felon/Violen` = felon+violen) %>% #group some cols
   group_by(listingDate) %>% summarise_all(mean) %>% #group and summarise
   gather("keyword", "prevalence", - listingDate, - seattle) %>% # gather the keywords
-  #filter(keyword %in% c('crim', 'record', 'felon', 'violen', 'drug', 'vandal', 'sex', 'assault', 'convict', 'prior', 'evict')) %>%
-  filter(keyword %in% c('safe', 'secur')) %>%
-  #filter(keyword == 'Record/Convict/Sex/Drug') %>%
+  filter(keyword %in% c("crim", "record", "convict", "sex","drug")) %>%
+  #filter(keyword %in% term_list) %>%
+  #filter(keyword == 'crim') %>%
   ggplot(aes(listingDate, prevalence, color=keyword))+
-    facet_wrap(~keyword)+
-    geom_point()+
-    geom_smooth()
+    #facet_wrap(~keyword, nrow = 1)+
+    #geom_point()+
+    #geom_smooth(method='glm')+
+    geom_smooth(method = 'loess', se = FALSE)+
+    #theme(legend.position = "none")+
+    geom_vline(aes(xintercept= as.Date('2017-07-01')), color = 'red')+
+    geom_text(aes(x = as.Date('2017-07-01'), y = .02, label = "FiT"), nudge_x = 18)+
+    geom_vline(aes(xintercept= as.Date('2018-02-19')), color = 'red')+
+    geom_text(aes(x = as.Date('2018-02-19'), y = .03, label = "CRO"), nudge_x = 20)+
+    labs(title = "Keyword Prevelence Over Time", x = "Listing Date", y = "Proportion of texts including keyword")
+
 
 
 ```
@@ -129,10 +174,16 @@ violent
 sex
 
 ```{r}
-samples <- texts_only %>% filter(violen==TRUE) %>% head()
-cat(samples$fullText)
+samples <- texts_only %>% filter(crim==TRUE)
+samples <- merged_fit %>% arrange(desc(Topic27)) %>% head(20)
+cat(paste(samples$listingDate, samples$listingText, '\n\n\n'))
 safe
 secur
+
+findThoughts(model, texts = out$meta$fullText, topics = 10, n = 20)
+
+
+
 ```
 
 ```{r}
@@ -160,11 +211,4 @@ full_model_40 <- stm(out$documents,
 
 ```
 
-=======
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
-
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
-
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
->>>>>>> 131a79f574a4f65d291c3f96387d9ca09412ba2d
 
