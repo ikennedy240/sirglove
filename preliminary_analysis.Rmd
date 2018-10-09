@@ -151,8 +151,9 @@ texts_only %>%
     #facet_wrap(~keyword, nrow = 1)+
     #geom_point()+
     #geom_smooth(method='glm')+
-    geom_smooth(method = 'loess', se = FALSE)+
+    geom_smooth(method = 'loess', se = TRUE)+
     #theme(legend.position = "none")+
+    theme_minimal()+
     geom_vline(aes(xintercept= as.Date('2017-07-01')), color = 'red')+
     geom_text(aes(x = as.Date('2017-07-01'), y = .02, label = "FiT"), nudge_x = 18)+
     geom_vline(aes(xintercept= as.Date('2018-02-19')), color = 'red')+
