@@ -39,7 +39,7 @@ tracts[which(is.na(tracts$black_proportion)),]
 test1 <- tracts %>% 
   sample_n(20) %>% 
   select(white_proportion, black_proportion, asian_proportion, latinx_proportion, all_other_proportion, GEOID)
-test <- gather(test1, key, value, -GEOID) %>% #go to long format
+tracts_type <- gather(tracts, key, value, -GEOID) %>% #go to long format
   mutate(key=str_remove(key,'_proportion'), key=str_remove(key,'all_')) %>% #clean up the key
   group_by(GEOID) %>% # group by tract
   summarise(first = last(key,order_by = value), # use summarise to extract the top three labels and values
@@ -57,6 +57,6 @@ test <- gather(test1, key, value, -GEOID) %>% #go to long format
     type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),type), # if the second is below 20 then we'll call label it with the first group and mixed
     type = ifelse(is.na(highest),'empty',type) # if there's an NA it's because the tract proportion divided by zero: an empty tract
   )
-test
+tracts_type %>% write_csv('resources/wa_tracts_type.csv')
 ```
 
