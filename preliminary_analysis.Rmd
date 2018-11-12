@@ -39,30 +39,30 @@ tracts <- bind_cols(tracts, setNames(tracts[re_cols]/tracts$total_RE, paste0(re_
 
 
 ```{r make neighborhood typology dummies}
-test1 <- tracts %>% 
-  #sample_n(20) %>% 
+test1 <- tracts %>%
+  #sample_n(20) %>%
   select(white_proportion, black_proportion, asian_proportion, latinx_proportion, all_other_proportion, GEOID)
 test <- gather(test1, key, value, -GEOID) %>% #go to long format
   mutate(key=str_remove(key,'_proportion'), key=str_remove(key,'all_')) %>% #clean up the key
   group_by(GEOID) %>% # group by tract
   summarise(first = last(key,order_by = value), # use summarise to extract the top three labels and values
             second = nth(key,-2,order_by = value), # maybe this is clumsy but its fast and its after midnight
-            third = nth(key,-3,order_by = value), 
-            highest = last(value,order_by = value), 
-            middle = nth(value,-2,order_by = value), 
+            third = nth(key,-3,order_by = value),
+            highest = last(value,order_by = value),
+            middle = nth(value,-2,order_by = value),
             low = nth(value,-3,order_by = value)) %>%
-  mutate( 
-    type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that 
-    type = ifelse(highest>.5&first!='white', paste("predominantly", first), type), # if the first one is not white and over 50, it's predominantly that 
+  mutate(
+    type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that
+    type = ifelse(highest>.5&first!='white', paste("predominantly", first), type), # if the first one is not white and over 50, it's predominantly that
     type = ifelse(highest<=.3, "mixed", type), #if nothing it over 40, it's a mixed neighborhood
-    type = ifelse(highest>.3&middle>.1&low>.1,paste(first, second, third), type), # if the second and third heighest ar both over 20, it's all three in that order 
+    type = ifelse(highest>.3&middle>.1&low>.1,paste(first, second, third), type), # if the second and third heighest ar both over 20, it's all three in that order
     type = ifelse(highest>.3&middle>.1&low<=.1,paste(first, second), type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
     type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),type), # if the second is below 20 then we'll call label it with the first group and mixed
     type = ifelse(is.na(highest),'empty',type), # if there's an NA it's because the tract proportion divided by zero: an empty tract
-    merged_type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that 
-    merged_type = ifelse(highest>.5&first!='white', paste("predominantly", first), merged_type), # if the first one is not white and over 50, it's predominantly that 
+    merged_type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that
+    merged_type = ifelse(highest>.5&first!='white', paste("predominantly", first), merged_type), # if the first one is not white and over 50, it's predominantly that
     merged_type = ifelse(highest<=.3, "mixed", merged_type), #if nothing it over 40, it's a mixed neighborhood
-    merged_type = ifelse(highest>.3&middle>.1&low>.1,paste(first, "mixed"), merged_type), # if the second and third heighest ar both over 20, it's all three in that order 
+    merged_type = ifelse(highest>.3&middle>.1&low>.1,paste(first, "mixed"), merged_type), # if the second and third heighest ar both over 20, it's all three in that order
     merged_type = ifelse(highest>.3&middle>.1&low<=.1,paste(first, second), merged_type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
     merged_type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),merged_type), # if the second is below 20 then we'll call label it with the first group and mixed
     merged_type = ifelse(is.na(highest),'empty',merged_type), # if there's an NA it's because the tract proportion divided by zero: an empty tract
@@ -80,11 +80,11 @@ range(test %>% filter(str_extract(type,"^\\w+\\s?\\w*")=='asian white') %>% sele
 test[is.na(str_extract(test$type,"^\\w+\\s?\\w*")),]
 str_extract(test$type,"^\\w+\\s?\\w*")
 
-cl_dropped %>% mutate(GEOID = as.character(GEOID10)) %>% 
-  inner_join(test, by =  "GEOID") %>% 
-  group_by(merged_type, GEOID) %>% 
-  summarise(type = first(merged_type), asian = mean(asian_proportion), white = mean(white_proportion), black = mean(black_proportion), latinx = mean(latinx_proportion), other = mean(aindian_proportion+other_proportion+pacisland_proportion)) %>% 
-  summarise(n = n(),type = first(merged_type), asian = mean(asian), white = mean(white), black = mean(black), latinx = mean(latinx), other = mean(other)) %>% 
+cl_dropped %>% mutate(GEOID = as.character(GEOID10)) %>%
+  inner_join(test, by =  "GEOID") %>%
+  group_by(merged_type, GEOID) %>%
+  summarise(type = first(merged_type), asian = mean(asian_proportion), white = mean(white_proportion), black = mean(black_proportion), latinx = mean(latinx_proportion), other = mean(aindian_proportion+other_proportion+pacisland_proportion)) %>%
+  summarise(n = n(),type = first(merged_type), asian = mean(asian), white = mean(white), black = mean(black), latinx = mean(latinx), other = mean(other)) %>%
   arrange(desc(n))
 ```
 
@@ -138,8 +138,8 @@ mtrix <- cor(texts_only%>%select(-starts_with('listing'),-fullText, - seattle))
 mtrix>.4
 summary(texts_only)
 # take our df
-texts_only %>% 
-  filter(seattle==1) %>% # filter on location
+texts_only %>%
+  filter(seattle==0) %>% # filter on location
   select(-contains('text'), -listingTitle) %>% #get rid of text columns
   mutate(`Record/Convict/Sex/Drug` = record+convict+sex+drug, `Felon/Violen` = felon+violen) %>% #group some cols
   group_by(listingDate) %>% summarise_all(mean) %>% #group and summarise
@@ -158,7 +158,7 @@ texts_only %>%
     geom_text(aes(x = as.Date('2017-07-01'), y = .02, label = "FiT"), nudge_x = 18)+
     geom_vline(aes(xintercept= as.Date('2018-02-19')), color = 'red')+
     geom_text(aes(x = as.Date('2018-02-19'), y = .03, label = "CRO"), nudge_x = 20)+
-    labs(title = "Keyword Prevalence Over Time", x = "Listing Date", y = "Proportion of texts including keyword")
+    labs(title = "Keyword Prevalence Over Time Outside", x = "Listing Date", y = "Proportion of texts including keyword")
 
 
 
@@ -175,41 +175,38 @@ violent
 sex
 
 ```{r}
-samples <- texts_only %>% filter(crim==TRUE)
+samples <- texts_only %>% filter(crim==TRUE, violen==TRUE, seattle == 1) %>% sample_n(10)
 samples <- merged_fit %>% arrange(desc(Topic27)) %>% head(20)
 cat(paste(samples$listingDate, samples$listingText, '\n\n\n'))
 safe
 secur
 
 findThoughts(model, texts = out$meta$fullText, topics = 10, n = 20)
-
-
-
+samples$listingDate
+cat(samples$fullText[[3]])
 ```
 
 ```{r}
 
-#add date 
+#add date
 ## PROCESS TRAINING DATA
-temp <- textProcessor(documents = cl_train$fullText, meta=cl_train, onlycharacter = TRUE) 
+temp <- textProcessor(documents = cl_train$fullText, meta=cl_train, onlycharacter = TRUE)
 out <- prepDocuments(temp$documents, temp$vocab, meta = temp$meta)
 
 
 # on 7-24 I decided to add bedrooms and sqft to the model because I don't think it should treat large adn small expensive units the same
-full_model_40 <- stm(out$documents, 
-                     out$vocab, 
+full_model_40 <- stm(out$documents,
+                     out$vocab,
                      K = 40,
-                     prevalence = ~ black_proportion + 
-                       asian_proportion + 
-                       latinx_proportion + 
-                       pop_thousands + 
+                     prevalence = ~ black_proportion +
+                       asian_proportion +
+                       latinx_proportion +
+                       pop_thousands +
                        pov_proportion +
-                       log_income + 
+                       log_income +
                        log_price +
-                       log_sqft, 
+                       log_sqft,
                      data=out$meta,
                      seed = 24)
 
 ```
-
-
