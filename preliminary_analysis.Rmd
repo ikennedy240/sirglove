@@ -3,89 +3,16 @@ title: "Seattle Incarceration and Rentals with Glove Word Embeddings (sirGloVE)"
 output: html_notebook
 ---
 
-<<<<<<< HEAD
-```{r}
+```{r load dependencies}
 library(tidyverse)
 library(ggplot2)
 library(stm)
 library(tidycensus)
-```
-
-=======
->>>>>>> 131a79f574a4f65d291c3f96387d9ca09412ba2d
-
-```{r}
-cl_dropped <- read_csv('data/cl_dropped.csv')
-merged_fit <- read_csv('data/merged_fit.csv')
-```
-
-<<<<<<< HEAD
-```{r grab census WA tract data}
-
-acs_codes <- c('B03002_001E','B03002_003E','B03002_004E','B03002_005E','B03002_006E','B03002_007E','B03002_009E','B03002_012E','B17001_001E','B17001_002E','B19013_001E', 'B06009_005E','B08015_001E','B25003_001E','B25003_002E','B25003_003E', 'B25032_001E','B25032_020E', 'B25032_021E', 'B25036_001E','B25036_015E','B25036_014E')
-acs_names <- c('total_RE','white', 'black', 'aindian', 'asian', 'pacisland', 'other', 'latinx', 'total_poverty', 'under_poverty', 'income', 'col_degree','commute', 'total_tenure', 'owner_occupied', 'rental', 'total_tenure_size', 'rental_20_49','rental_over_50','total_tenure_year', 'built_10_13', 'built_after_14')
-re_cols <- c("white","black", "aindian", "asian","pacisland", "other", "latinx", "all_other") # save a vector of race and ethnicity categories
-names(acs_codes) <- acs_names
-tracts <- get_acs(geography = 'tract', variables = acs_codes, output = 'wide', state = 'WA') %>% #grab census data
-  select(-ends_with("M")) %>% mutate(all_other = aindian+pacisland+other) # drop moe columns
-tracts <- bind_cols(tracts, setNames(tracts[re_cols]/tracts$total_RE, paste0(re_cols,"_proportion"))) %>% # make racial proportion columns
-  mutate(pov_proportion = under_poverty/total_poverty, # poverty proportion variable
-         log_income = log(income), # log income variable
-         pop_thousands = total_RE/1000, # population in thousands
-         share_oo = owner_occupied/total_tenure,
-         share_rental_over_20 = (rental_20_49+rental_over_50)/total_tenure,
-         share_built_after_10 = (built_10_13+built_after_14)/total_tenure)
-```
-
-
-```{r make neighborhood typology dummies}
-test1 <- tracts %>%
-  #sample_n(20) %>%
-  select(white_proportion, black_proportion, asian_proportion, latinx_proportion, all_other_proportion, GEOID)
-test <- gather(test1, key, value, -GEOID) %>% #go to long format
-  mutate(key=str_remove(key,'_proportion'), key=str_remove(key,'all_')) %>% #clean up the key
-  group_by(GEOID) %>% # group by tract
-  summarise(first = last(key,order_by = value), # use summarise to extract the top three labels and values
-            second = nth(key,-2,order_by = value), # maybe this is clumsy but its fast and its after midnight
-            third = nth(key,-3,order_by = value),
-            highest = last(value,order_by = value),
-            middle = nth(value,-2,order_by = value),
-            low = nth(value,-3,order_by = value)) %>%
-  mutate(
-    type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that
-    type = ifelse(highest>.5&first!='white', paste("predominantly", first), type), # if the first one is not white and over 50, it's predominantly that
-    type = ifelse(highest<=.3, "mixed", type), #if nothing it over 40, it's a mixed neighborhood
-    type = ifelse(highest>.3&middle>.1&low>.1,paste(first, second, third), type), # if the second and third heighest ar both over 20, it's all three in that order
-    type = ifelse(highest>.3&middle>.1&low<=.1,paste(first, second), type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
-    type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),type), # if the second is below 20 then we'll call label it with the first group and mixed
-    type = ifelse(is.na(highest),'empty',type), # if there's an NA it's because the tract proportion divided by zero: an empty tract
-    merged_type = ifelse(highest>.8&first=='white', paste("predominantly", first), NA), # if the first one is white and over 80, it's predominantly that
-    merged_type = ifelse(highest>.5&first!='white', paste("predominantly", first), merged_type), # if the first one is not white and over 50, it's predominantly that
-    merged_type = ifelse(highest<=.3, "mixed", merged_type), #if nothing it over 40, it's a mixed neighborhood
-    merged_type = ifelse(highest>.3&middle>.1&low>.1,paste(first, "mixed"), merged_type), # if the second and third heighest ar both over 20, it's all three in that order
-    merged_type = ifelse(highest>.3&middle>.1&low<=.1,paste(first, second), merged_type), # if the second is over 20 but the third isn't, we'll just label it with the first two groups,
-    merged_type = ifelse(highest<=.8&middle<=.1,paste(first,'mixed'),merged_type), # if the second is below 20 then we'll call label it with the first group and mixed
-    merged_type = ifelse(is.na(highest),'empty',merged_type), # if there's an NA it's because the tract proportion divided by zero: an empty tract
-    # if white is the highest, but the second one is greater that .1 and the third ISN'T then it should be second first
-    merged_type = ifelse(first=='white'&middle>.1&low<=.1,paste(second, first), merged_type),
-    # if white is the highest, but the second and third are greater that .1 then it should be mixed
-    merged_type = ifelse(first=='white'&middle>.1&low>.1,"mixed",merged_type)
-  )
-tracts <- tracts %>% inner_join(test[c("GEOID", "type")], by = 'GEOID')
+source('bin/helpers.R') # helper functions for writing text files
 ```
 
 ```{r}
-test %>% group_by(merged_type) %>% count() %>% arrange(desc(n))
-range(test %>% filter(str_extract(type,"^\\w+\\s?\\w*")=='asian white') %>% select(highest), na.rm = TRUE)
-test[is.na(str_extract(test$type,"^\\w+\\s?\\w*")),]
-str_extract(test$type,"^\\w+\\s?\\w*")
-
-cl_dropped %>% mutate(GEOID = as.character(GEOID10)) %>%
-  inner_join(test, by =  "GEOID") %>%
-  group_by(merged_type, GEOID) %>%
-  summarise(type = first(merged_type), asian = mean(asian_proportion), white = mean(white_proportion), black = mean(black_proportion), latinx = mean(latinx_proportion), other = mean(aindian_proportion+other_proportion+pacisland_proportion)) %>%
-  summarise(n = n(),type = first(merged_type), asian = mean(asian), white = mean(white), black = mean(black), latinx = mean(latinx), other = mean(other)) %>%
-  arrange(desc(n))
+merged_fit <- read_csv('data/merged_fit.csv') # load cl data merged with topic proportions
 ```
 
 
@@ -94,9 +21,9 @@ cl_dropped %>% mutate(GEOID = as.character(GEOID10)) %>%
 # I should make time the x axis and then map topic prevalence as the y... take the average for each date and plot it as a dot?
 
 merged_fit %>% select(Topic1:Topic40, listingDate) %>% group_by(listingDate) %>% summarise_all(mean) %>%
-  gather("topic","topicPrevalence", Topic1:Topic40) %>%
-  filter(topic %in% c("Topic10", 'Topic12', 'Topic14', 'Topic17', 'Topic19', 'Topic21', 'Topic26', 'Topic27', 'Topic30','Topic33','Topic34','Topic37','Topic4','Topic8','Topic9')) %>%
-  filter(topic == 'Topic27') %>%
+  gather("topic","topicPrevalence", Topic1:Topic40) %>% 
+  #filter(topic %in% c("Topic10", 'Topic12', 'Topic14', 'Topic17', 'Topic19', 'Topic21', 'Topic26', 'Topic27', 'Topic30','Topic33','Topic34','Topic37','Topic4','Topic8','Topic9')) %>%
+  #filter(topic == 'Topic27') %>%
   ggplot(aes(listingDate, topicPrevalence, color = topic))+
     #geom_point()+
     geom_smooth()+
@@ -114,7 +41,7 @@ keywords <- '\\scrim\\w*|\\srecord\\w*|\\sfelon\\w*|\\sviolen\\w*|\\sdrug\\w*|\\
 stem_list <- c('crim', 'record', 'felon', 'violen', 'drug', 'vandal', 'sex', 'assault', 'convict', 'prior', 'evict', 'safe','secur')
 # make a limited df that only has relavent columns
 term_list <- read_lines('resources/termlist.txt')
-texts_only <- cl_dropped %>% select(listingDate, listingTitle, listingText, seattle) %>% mutate(fullText = paste(listingTitle, listingText))
+texts_only <- merged_fit %>% select(listingDate, listingTitle, listingText, seattle) %>% mutate(fullText = paste(listingTitle, listingText))
 # mark texts that have any keyword
 texts_only <- texts_only %>% mutate(keyword_prevalence = str_detect(string = fullText, pattern = regex(keywords, ignore_case = TRUE)))
 
@@ -174,39 +101,35 @@ felon
 violent
 sex
 
-```{r}
-samples <- texts_only %>% filter(crim==TRUE, violen==TRUE, seattle == 1) %>% sample_n(10)
-samples <- merged_fit %>% arrange(desc(Topic27)) %>% head(20)
-cat(paste(samples$listingDate, samples$listingText, '\n\n\n'))
-safe
-secur
-
-findThoughts(model, texts = out$meta$fullText, topics = 10, n = 20)
-samples$listingDate
-cat(samples$fullText[[3]])
+```{r export key texts}
+locations <- c("outside_", "seattle_") # list of places
+file_names <- c("before_7_1", "7_1_to_2_19", "2_19_to_3_29", "after_3_29") # of file names
+dates <- c(as.Date('2016-01-01'), as.Date('2017-07-01'), as.Date('2018-02-19'), as.Date('2018-10-10')) # of datas
+for(j in 0:1){
+  for(i in 1:length(file_names)){ # loop through locations and dates
+    frame <- merged_fit %>% 
+      filter(listingDate>dates[i],listingDate<dates[i+1],seattle == j, Topic19>.2) %>% # grab the right texts
+      mutate(temp_full = str_c(listingTitle,listingText), topic = 'Topic19')  #combine titles and text, append topic number
+    docs = ifelse(length(frame$docnum)>20, 20, length(frame$docnum)) #sample up to 20 doduments
+    walk(sample_n(frame, docs)$py_index, text_output, df=frame, filepath = paste0('output/text/extras/'), type = 'document', extra = TRUE) # use helper function ot make nicely formatted texts
+  }
+}
 ```
 
-```{r}
-
-#add date
-## PROCESS TRAINING DATA
-temp <- textProcessor(documents = cl_train$fullText, meta=cl_train, onlycharacter = TRUE)
-out <- prepDocuments(temp$documents, temp$vocab, meta = temp$meta)
-
-
-# on 7-24 I decided to add bedrooms and sqft to the model because I don't think it should treat large adn small expensive units the same
-full_model_40 <- stm(out$documents,
-                     out$vocab,
-                     K = 40,
-                     prevalence = ~ black_proportion +
-                       asian_proportion +
-                       latinx_proportion +
-                       pop_thousands +
-                       pov_proportion +
-                       log_income +
-                       log_price +
-                       log_sqft,
-                     data=out$meta,
-                     seed = 24)
-
+```{r save cleaned text as a file with one line per sentence}
+library(tokenizers)
+locations <- c("outside_", "seattle_") # list of places
+file_names <- c("before_7_1.txt", "7_1_to_2_19.txt", "2_19_to_3_29.txt", "after_3_29.txt") # of file names
+dates <- c(as.Date('2016-01-01'), as.Date('2017-07-01'), as.Date('2018-02-19'), as.Date('2018-03-29'), as.Date('2018-11-29')) # of dates
+for(j in 0:1){
+  for(i in 1:length(file_names)){ # loop through locations and dates
+    frame <- merged_fit %>% 
+      filter(listingDate>dates[i],listingDate<dates[i+1],seattle == j) %>% # grab the right texts
+      mutate(temp_full = str_c(listingTitle,listingText)) # combine titles and text
+    list <- frame$temp_full # make a list of the right texts
+    write_tokenized_sentences(list, paste0(locations[j+1], file_names[i])) # helper function to save nicely
+    print(paste("Saved", length(list), "texts for ", locations[j+1], file_names[i])) # log number of files
+  }
+}
 ```
+
