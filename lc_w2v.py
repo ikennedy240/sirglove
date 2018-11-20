@@ -42,7 +42,7 @@ class MySentences(object):
 
 def most_similar_by_data(filep, word, topn, model_only=False):
     # pass the text file to the sentence iterator
-    sentences = MySentences("data/"+filep) # a memory-friendly iterator
+    sentences = MySentences("data/text/"+filep) # a memory-friendly iterator
 
     # train the w2v model
     #phrases = Phrases(sentences, threshold = 1000, common_terms =  ["queen anne", "federal way", "university district"])
@@ -95,11 +95,13 @@ def display_keywords_PCAscatterplot(model, word, ref = False, key_words = None, 
 word = "crimin" # set a key word of interest
 top_n = 30 # set how many words we'll focus on
 fileps = [x for x in os.listdir('data/text') if ('seattle' in x)|('outside' in x)] # get filenames
+fileps = fileps+['sent_tokenized.txt']
 models = {} # initiate empty dictionary of models
 for filep in fileps:
     models[filep] = most_similar_by_data(filep, word, top_n, model_only = True) # build w2v models for each file
 
-fileps = list(models.keys())
+
+fileps == list(models.keys())
 
 similarities = pd.DataFrame()
 for filep in fileps:
@@ -108,7 +110,7 @@ for filep in fileps:
     similarities[re.sub('.txt','',filep)+'_words'] = [x[0] for x in top_words]
     similarities[re.sub('.txt','',filep)+'_values'] = [x[1] for x in top_words]
 
-similarities[[x for x in similarities.columns if 'outside' in x]]
+similarities[[x for x in similarities.columns if 'seattle' in x]]
 word_vectors.similar_by_word("courtesy_patrol", topn = top_n)
 
 ps.stem('requested')
@@ -120,8 +122,9 @@ set(similarities.seattle_7_1_to_2_19_words).difference(similarities['outside_7_1
 key_words = np.unique(similarities.iloc[:,similarities.columns.str.endswith('words')].values)
 plots = {}
 for filep in fileps:
-    plots[filep] = display_keywords_PCAscatterplot(model = models[filep], word = word, key_words = similarities.sent_tokenized_words.head(10), ref= True, title=filep)
+    plots[filep] = display_keywords_PCAscatterplot(model = models[filep], word = word, key_words = similarities.sent_tokenized_words.head(10), ref= False, title=filep)
 
+similarities.columns
 ps.stem('controlled')
 
 display_keywords_PCAscatterplot(model = models['sent_tokenized.txt'], word = 'sex', key_words = None, ref= False, title="full sample embeddings for 'sex'")

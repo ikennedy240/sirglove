@@ -131,5 +131,6 @@ for(j in 0:1){
     print(paste("Saved", length(list), "texts for ", locations[j+1], file_names[i])) # log number of files
   }
 }
+write_tokenized_sentences(str_c(merged_fit$listingTitle, merged_fit$listingText), 'sent_tokenized.txt')
 ```
 
