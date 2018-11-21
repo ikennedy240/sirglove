@@ -1,0 +1,139 @@
+---
+title: "analysis_workflow"
+output: html_document
+---
+
+
+```{r load dependencies}
+library(tidyverse)
+library(forcats)
+library(ggplot2)
+library(stm)
+library(tidycensus)
+source('bin/helpers.R') # helper functions for writing text files
+```
+
+```{r load data}
+merged_fit <- read_csv('data/merged_fit.csv') # load cl data merged with topic proportions
+```
+
+
+Merged fit has topics and stuff from another analysis, let's get rid of those, except for topic 19, which we'll keep for comparison as `oldTopic19`.
+```{r}
+merged <- merged_fit %>% mutate(oldTopic19 = Topic19) %>% select(-starts_with('Topic'))
+remove(merged_fit) # free up some ram
+```
+
+
+Then we're going to train a new STM that takes time into account. To do that I'm going to add a factor to merged_fit for our time periods of interest:
+
+before 7/1, 7/1 to 2/19, 2/19 to 3/29, and after 3/29
+
+```{r}
+merged <- merged %>% mutate(time_period = 'before 7/1',
+                  time_period = ifelse(listingDate>'2017/07/01','7/1 to 2/19', time_period),
+                  time_period = ifelse(listingDate>'2018/02/19','2/19 to 3/29', time_period),
+                  time_period = ifelse(listingDate>'2018/03/29', 'after 3/29', time_period)
+                  )
+```
+
+
+Then we'll specify two STM models with the following covariates:
+
+STModel 1:
+neighborhood racial proportions
+time periods
+
+STModel 2:
+neighborhood racial proportions
+time periods
+pov_proportion+
+log_income+
+pop_thousands+
+share_college+
+share_commuters+
+share_oo+
+share_rental_over_20+
+share_built_after_10+
+log_price+
+log_sqft,
+
+```{r preprocess}
+
+## PROCESS TRAINING DATA
+temp <- textProcessor(documents = merged$cleanText, meta=merged, onlycharacter = TRUE) 
+out <- prepDocuments(temp$documents, temp$vocab, meta = temp$meta)
+
+```
+
+```{r fit topic model}
+
+stm_1 <- stm(out$documents, 
+                     out$vocab, 
+                     K = 40,
+                     prevalence = ~ black_proportion + 
+               asian_proportion + 
+               latinx_proportion+
+               all_other_proportion+
+               factor(time_period),
+                     data = out$meta,
+                     seed = 24)
+stm_2 <- stm(out$documents, 
+                     out$vocab, 
+                     K = 40,
+                     prevalence = ~ neighborhood_type+
+                     pov_proportion+
+                     log_income+
+                     pop_thousands+
+                     share_college+
+                     share_commuters+
+                     share_oo+
+                     share_rental_over_20+
+                     share_built_after_10+
+                     log_price+
+                     log_sqft,
+                     data = out$meta,
+                     seed = 24)
+fit_1 <- make.dt(stm_1, meta=out$meta %>% select(-docnum))
+fit_2 <- make.dt(stm_2, meta=out$meta %>% select(-docnum))
+
+```
+
+```{r look at topic prevelence over time}
+fit_2 %>% select(Topic1:Topic40, listingDate, seattle) %>% drop_na() %>%
+  group_by(listingDate, seattle) %>% 
+  summarise_all(mean) %>%
+  gather("topic","topicPrevalence", Topic1:Topic40) %>% filter(topic == 'Topic27') %>%
+    ggplot(aes(listingDate, topicPrevalence, color = topic))+
+    #geom_point()+
+    geom_smooth()+
+    geom_vline(aes(xintercept = as.Date('2017/07/01')), color = 'red')+
+    geom_vline(aes(xintercept = as.Date('2018/02/19')), color = 'red')+
+    facet_wrap(~seattle)
+    
+```
+
+
+```{r try some models}
+fit_1 <- fit_1 %>% arrange(listingDate, seattle) %>% 
+  mutate(time_seattle = str_c(time_period, if_else(seattle==1, ' seattle', ' outside')), 
+         time_seattle = factor(time_seattle),
+         time_seattle = relevel(time_seattle, ref = 'before 7/1 seattle'))
+#linear models with no clustering
+model_1 <- lm(Topic27 ~ as_factor(time_period) + seattle, data = fit_1 %>% arrange(listingDate))
+model_2 <- lm(Topic27 ~ as_factor(time_period) + seattle + as.character(GEOID10), data = fit_1 %>% arrange(listingDate))
+summary(model_1)
+summary(model_2)
+# pooled models with clustered SEs)
+model_plm_1 <- plm(Topic27 ~ time_period + seattle, data = fit_1, model = 'pooling', index = "GEOID10")
+model_plm_2 <- plm(Topic27 ~ time_seattle, data = fit_1, model = 'pooling', index = "GEOID10")
+summary(model_plm_2)
+# difference in difference
+fit_1 <- fit_1 %>% mutate(treat_space = seattle,
+                 treat_time = listingDate>'2017/07/01',
+                 did = treat_space*treat_time) 
+model_did <- plm(Topic27 ~ treat_space + treat_time + did, data = fit_1, model = 'pooling', index = "GEOID10")
+summary(model_did)
+coeftest(model_did, vcov=vcovHC(model_did,type="HC0",cluster="group"))
+```
+
