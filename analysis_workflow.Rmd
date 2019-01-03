@@ -5,12 +5,14 @@ output: html_document
 
 
 ```{r load dependencies}
-library(tidyverse)
 library(forcats)
 library(ggplot2)
 library(stm)
 library(tidycensus)
+library(lmtest)
+library(plm)
 source('bin/helpers.R') # helper functions for writing text files
+library(tidyverse)
 ```
 
 ```{r load data}
@@ -29,14 +31,49 @@ Then we're going to train a new STM that takes time into account. To do that I'm
 
 before 7/1, 7/1 to 2/19, 2/19 to 3/29, and after 3/29
 
+King County: 33
+Pierce: 53
+Snohomish: 61
+
 ```{r}
 merged <- merged %>% mutate(time_period = 'before 7/1',
                   time_period = ifelse(listingDate>'2017/07/01','7/1 to 2/19', time_period),
                   time_period = ifelse(listingDate>'2018/02/19','2/19 to 3/29', time_period),
-                  time_period = ifelse(listingDate>'2018/03/29', 'after 3/29', time_period)
+                  time_period = ifelse(listingDate>'2018/03/29', 'after 3/29', time_period),
+                  county = 'other',
+                  county = if_else(str_detect(GEOID10, '53033'), 'King', county),
+                  county = if_else(seattle == 1, 'Seattle', county),
+                  county = if_else(str_detect(GEOID10, '53053'), 'Pierce', county),
+                  county = if_else(str_detect(GEOID10, '53062'), 'Snohomish', county)
                   )
+
 ```
 
+
+
+```{r try did on old data}
+# difference in difference
+merged <- merged %>% mutate(treat_space = seattle,
+                 treat_time = listingDate>'2017/07/01',
+                 did = treat_space*treat_time) 
+model_did <- plm(oldTopic19 ~ treat_space + treat_time + did, data = merged %>% filter(county == 'King'), model = 'pooling', index = "GEOID10")
+summary(model_did)
+coeftest(model_did, vcov=vcovHC(model_did,type="HC0",cluster="group"))
+ggplot(merged, aes(x = listingDate, y = oldTopic19))+
+  geom_smooth(aes(color = factor(county)))
+
+mean_merged <- merged %>% group_by(listingDate) %>% summarise(prop = mean(oldTopic19), county = first(county), seattle = first(seattle)) %>% filter(county %in% c('King', 'Seattle'))
+mean_merged <- mean_merged %>% mutate(treat_space = seattle,
+                 treat_time = listingDate>'2017/02/19',
+                 did = treat_space*treat_time) 
+model_did <- lm(prop ~ treat_space + treat_time + did, data = mean_merged)
+summary(model_did)
+```
+
+rm *.TIF
+rm *.csv
+rmdir temp
+cd ../20
 
 Then we'll specify two STM models with the following covariates:
 
@@ -132,8 +169,110 @@ summary(model_plm_2)
 fit_1 <- fit_1 %>% mutate(treat_space = seattle,
                  treat_time = listingDate>'2017/07/01',
                  did = treat_space*treat_time) 
-model_did <- plm(Topic27 ~ treat_space + treat_time + did, data = fit_1, model = 'pooling', index = "GEOID10")
+model_did <- plm(oldTopic19 ~ treat_space + treat_time + did, data = merged %>% , model = 'pooling', index = "GEOID10")
 summary(model_did)
 coeftest(model_did, vcov=vcovHC(model_did,type="HC0",cluster="group"))
+```
+
+
+```{r keyword proportion overtime}
+# make a regex pattern that matches any of the stems starting with a space
+keywords <- '\\scrim\\w*|\\srecord\\w*|\\sfelon\\w*|\\sviolen\\w*|\\sdrug\\w*|\\svandal\\w*|\\ssex\\w*|\\sassault\\w*|\\sconvict\\w*|\\sprior\\w*'
+# a list of the same stems to check each keyword individually
+stem_list <- c('crim', 'record', 'felon', 'violen', 'drug', 'vandal', 'sex', 'assault', 'convict', 'prior', 'evict', 'safe','secur')
+# make a limited df that only has relavent columns
+term_list <- read_lines('resources/termlist.txt')
+texts_only <- merged %>% mutate(fullText = paste(listingTitle, listingText))
+# mark texts that have any keyword
+texts_only <- texts_only %>% mutate(keyword_prevalence = str_detect(string = fullText, pattern = regex(keywords, ignore_case = TRUE)))
+
+# make a column for each stem and mark if that stem is present
+for(keyword in term_list){
+  # format the stem as a regex pattern
+  pattern = paste0('\\b',keyword,'\\b')
+  # marke each text for presence of that stem
+  texts_only[keyword] = str_detect(string = texts_only$fullText, pattern = regex(pattern, ignore_case = TRUE))
+}
+
+for(keyword in stem_list){
+  # format the stem as a regex pattern
+  pattern = paste0('\\b',keyword,'\\w*')
+  # marke each text for presence of that stem
+  texts_only[keyword] = str_detect(string = texts_only$fullText, pattern = regex(pattern, ignore_case = TRUE))
+}
+
+
+mtrix <- cor(texts_only%>%select(-starts_with('listing'),-fullText, - seattle))
+mtrix>.4
+names(texts_only)
+```
+
+```{r}
+# take our df
+texts_only %>% filter(seattle == 1) %>%
+  select(listingDate, keyword_prevalence:secur) %>% #get rid of text columns
+  #mutate(`Record/Convict/Sex/Drug` = record+convict+sex+drug, `Felon/Violen` = felon+violen) %>% #group some cols
+  group_by(listingDate) %>% summarise_all(mean) %>% #group and summarise
+  gather("keyword", "prevalence", - listingDate) %>% # gather the keywords
+  #filter(keyword %in% c("crim", "record", "convict", "sex","drug")) %>%
+  #filter(keyword %in% term_list) %>%
+  filter(keyword == 'crim') %>%
+  ggplot(aes(listingDate, prevalence, color=keyword))+
+    #facet_wrap(~keyword, nrow = 1)+
+    #geom_point()+
+    #geom_smooth(method='glm')+
+    geom_smooth(method = 'loess', se = TRUE)+
+    #theme(legend.position = "none")+
+    theme_minimal()+
+    geom_vline(aes(xintercept= as.Date('2017-07-01')), color = 'red')+
+    geom_text(aes(x = as.Date('2017-07-01'), y = .02, label = "FiT"), nudge_x = 18)+
+    geom_vline(aes(xintercept= as.Date('2018-02-19')), color = 'red')+
+    geom_text(aes(x = as.Date('2018-02-19'), y = .03, label = "CRO"), nudge_x = 20)+
+    labs(title = "Keyword Prevalence Over Time Outside", x = "Listing Date", y = "Proportion of texts including keyword")
+```
+
+```{r}
+fit_1 <- merged %>% arrange(listingDate, seattle) %>% 
+  mutate(time_seattle = str_c(time_period, if_else(seattle==1, ' seattle', ' outside')), 
+         time_seattle = factor(time_seattle),
+         time_seattle = relevel(time_seattle, ref = 'before 7/1 seattle'),
+         fullText = paste(listingTitle, listingText),
+         crim = str_detect(fullText, pattern = regex('\\scrim\\w+', ignore_case = TRUE)),
+         treat_space = seattle,
+         treat_time = listingDate>'2017/07/01',
+         did = treat_space*treat_time)
+fit_1 %>% filter(listingDate>'2017/01/01') %>%group_by(listingDate, seattle) %>% summarise(crim = mean(crim)) %>% drop_na() %>%
+ggplot(aes(x = listingDate, y = crim))+
+  #geom_point()+
+  geom_smooth()+
+  facet_wrap(~seattle)+
+  theme_minimal()+
+    geom_vline(aes(xintercept= as.Date('2017-07-01')), color = 'red')+
+    geom_text(aes(x = as.Date('2017-07-01'), y = .02, label = "FiT"), nudge_x = 18)+
+    geom_vline(aes(xintercept= as.Date('2018-02-19')), color = 'red')+
+    geom_text(aes(x = as.Date('2018-02-19'), y = .03, label = "CRO"), nudge_x = 20)+
+    labs(title = "Keyword Prevalence Over Time Outside", x = "Listing Date", y = "Proportion of texts including keyword")
+```
+
+```{r}
+fit_did <- fit_1 %>% 
+  filter(listingDate>'2017/01/01') %>%
+  group_by(listingDate, seattle) %>% 
+  summarise(crim = mean(crim),
+            treat_space = mean(treat_space),
+            treat_time = mean(treat_time),
+            did = mean(did)) %>% drop_na()
+model_did <- plm(crim ~ treat_space + treat_time + did, data = fit_did, model = 'pooling', index = "treat_space")
+summary(model_did)
+coeftest(model_did, vcov=vcovHC(model_did,type="HC0",cluster="group"))
+```
+
+```{r}
+names(texts_only)
+```
+```{r}
+summary(full_40_nt)
+topicCorr(full_40_nt)
+plot(full_40_nt)
 ```
 
