@@ -5,14 +5,25 @@ output: html_notebook
 
 ```{r load dependencies}
 library(tidyverse)
-library(ggplot2)
 library(stm)
+library(sf)
 library(tidycensus)
 source('bin/helpers.R') # helper functions for writing text files
 ```
 
 ```{r}
-merged_fit <- read_csv('data/merged_fit.csv') # load cl data merged with topic proportions
+data <- read_csv('data/cl_dropped_3_20.csv') # load cl data merged with topic proportions
+tracts <- get_census_data()
+```
+
+```{r}
+bbox <- st_bbox(tracts)
+data <- data %>% 
+  # convert the points to same CRS
+  st_as_sf(coords = c("x", "y"),
+           crs = st_crs(tracts))
+# label tracts
+data$tract <- tracts$GEO_ID_TRT[as.numeric(st_within(data, tracts))] 
 ```
 
 
